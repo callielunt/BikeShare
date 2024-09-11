@@ -1,7 +1,9 @@
+# Load Libraries
 library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(DataExplorer)
+library(patchwork)
 
 # Read in Data
 sampleSubmission <- vroom("sampleSubmission.csv")
@@ -17,4 +19,78 @@ plot_histogram(train)
 plot_missing(train)
 
 # Weather Barplot
-weather <- ggplot(data = train, mapping = aes(x = weather, y = count)) +
+weather <- ggplot(data = train, mapping = aes(x = weather, y = count)) + 
+  geom_col(fill = "blue") +
+  labs(x = "Weather", y = "Count", 
+       title = "Count of Bicylces 
+       Rented Based on Weather")
+
+
+# Scatterplot of Count vs aTemp (Temp it feels like)
+atemp <- ggplot(data = train, mapping = aes(x = atemp, y = count)) +
+  geom_point() +
+  labs(x = "Temperature It Feels Like (in Celcius)", y = "Count", 
+       title = "Count of Bicylces Rented Based on 
+       Temperature It Feels Like")
+
+# Scatterplot of Temp vs aTemp
+temps <- ggplot(data = train, mapping = aes(x = atemp, y = temp)) +
+  geom_point() +
+  labs(x = "Temperature It Feels Like (in Celcius)", y = "Actual Temperature(in Celcius)", 
+       title = "Count Based on Temp It Feels Like 
+       vs Actual Temp")
+
+# Barchart of Count vs Holiday
+train$holiday <- factor(train$holiday)
+holiday <- ggplot(data = train, mapping = aes(x = holiday, y = count)) + 
+  geom_col(fill = "blue") +
+  labs(x = "Holiday", y = "Count", 
+       title = "Count of Bicylces Rented 
+       Based on Holiday Status") +
+  scale_x_discrete(labels = c("No", "Yes") )
+
+# Patch them together 
+(weather + holiday) / (atemp + temps)
+
+# Make weather 4 observation to weather 3 and make category called "rain"
+# notice only 1 obersvation in train 2
+train2 <- train |> filter(weather == 4)
+
+# change season numbers into category not number
+
+# Linear Model
+
+# Make workingday a factor
+train$workingday <- factor(train$workingday)
+
+# Make log(count) and select variables
+train2 <- train |> mutate("log_count"= log(count)) |> select("datetime", "season",
+                                                           "holiday", "workingday",
+                                                           "weather", "temp", "atemp",
+                                                           "humidity", "windspeed", "log_count")
+
+my_linear_model <- linear_reg() |>
+  set_engine("lm") |>
+  set_mode("regression") |> # means dealing with quantative, numeric target
+  fit(formula = log_count ~. , data = train2)
+
+# Generate Preditions using linear model
+test$holiday <- factor(test$holiday)
+test$workingday <- factor(test$workingday)
+bike_predictions <- predict(my_linear_model,
+                            new_data = test)
+bike_predictions
+
+# Format the Predictionf for Submission to Kaggle
+
+kaggle_submission <- bike_predictions |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+kaggle_submission
+
+# Write out the file to submit to Kaggle
+vroom_write(x= kaggle_submission, file = "./LinearPreds1.csv", delim = ",")
