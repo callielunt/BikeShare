@@ -4,6 +4,7 @@ library(tidymodels)
 library(vroom)
 library(DataExplorer)
 library(patchwork)
+library(poissonreg)
 
 # Read in Data
 sampleSubmission <- vroom("sampleSubmission.csv")
@@ -94,3 +95,42 @@ kaggle_submission
 
 # Write out the file to submit to Kaggle
 vroom_write(x= kaggle_submission, file = "./LinearPreds1.csv", delim = ",")
+
+
+
+
+# Poisson Model
+
+# Make workingday a factor
+train$workingday <- factor(train$workingday)
+train$holiday <- factor(test$holiday)
+
+# Make log(count) and select variables
+train3 <- train |> select("datetime", "season","holiday", "workingday",
+                          "weather", "temp", "atemp",
+                          "humidity", "windspeed", "count")
+
+my_pois_model <- poisson_reg() |>
+  set_engine("glm") |>
+  set_mode("regression") |> # means dealing with quantative, numeric target
+  fit(formula = count ~. , data = train3)
+
+# Generate Preditions using linear model
+test$holiday <- factor(test$holiday)
+test$workingday <- factor(test$workingday)
+
+bike_predictions_pois <- predict(my_pois_model,
+                            new_data = test)
+bike_predictions_pois
+
+# Format the Predictionf for Submission to Kaggle
+
+kaggle_submission_pois <- bike_predictions_pois %>%
+  bind_cols(.,test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+kaggle_submission_pois
+
+# Write out the file to submit to Kaggle
+vroom_write(x= kaggle_submission_pois, file = "./PoisPreds1.csv", delim = ",")
