@@ -1,10 +1,12 @@
 # Load Libraries
 library(tidyverse)
 library(tidymodels)
+library(glmnet)
 library(vroom)
 library(DataExplorer)
 library(patchwork)
 library(poissonreg)
+library(glmnet)
 
 # Read in Data
 sampleSubmission <- vroom("sampleSubmission.csv")
@@ -187,5 +189,186 @@ submission
 # Write out the file to submit to Kaggle
 vroom_write(x= submission, file = "./LinearPreds2.csv", delim = ",")
 
+
+# Penalized Regression
+
+# Read in Data
+test <- vroom("test.csv")
+train <- vroom("train.csv")
+
+# Cleaning
+new_train <- train |> select(-casual, -registered) |> # removes casual and registered
+  mutate("log_count"= log(count)) |> # makes variable log_count 
+  select(-count) # removes variable count 
+
+# Feature Engineering
+bike_recipe <- recipe(log_count ~ ., data = new_train) %>% 
+  step_mutate(weather = ifelse(weather == 4, 3, weather)) %>% # changes weather 4 into a 3
+  step_mutate(weather = factor(weather, levels = c(1,2,3), 
+                               labels = c("clear", "cloudy", "rainy"))) %>%  # sets weather into a factor
+  step_time(datetime, features = "hour") %>% # extracts hour variable from timestamp
+  step_mutate(datetime_hour = factor(datetime_hour)) %>% # makes hour a factor
+  step_mutate(season = factor(season, levels = c(1,2,3,4), 
+                              labels = c("spring", "summer", "fall", "winter"))) %>% # makes season a factor
+  step_dummy(all_nominal_predictors()) %>% # creates dummy variables %>% 
+  step_rm(datetime) %>% 
+  step_normalize(all_numeric_predictors()) # make mean 0 and sd = 1
+
+# making sure it did what I wanted
+# prepped_recipe <- prep(bike_recipe)
+# final <- bake(prepped_recipe, new_data = new_train)
+# glimpse(final)
+
+# Try 1: penalty = 2, mixture = 1
+# Define a Model
+penalized_model_1 <- linear_reg(penalty = 0.001 , mixture = 0.5 ) %>% 
+  set_engine("glmnet")
+
+bike_workflow_1 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_1) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_1 <- predict(bike_workflow_1, new_data = test)
+
+submission_1 <- penalized_preds_1 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_1, file = "./Penalized1.5.csv", delim = ",")
+
+# when v = 1 it is Lasso or L1 penalty (v = mixture)
+# Try 2: penalty = , mixture = 1
+# Define a Model
+penalized_model_2 <- linear_reg(penalty = 0.0001 , mixture = 1) %>% 
+  set_engine("glmnet") %>% 
+  set_mode("regression")
+
+bike_workflow_2 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_2) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_2 <- predict(bike_workflow_2, new_data = test)
+
+submission_2 <- penalized_preds_2 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_2, file = "./Penalized2.csv", delim = ",")
+
+# when v = 0 it is Ridge Regression or L2 penalty (v = mixture)
+# Try 3: penalty = , mixture =
+# Define a Model
+penalized_model_3 <- linear_reg(penalty = 0.05, mixture = 0) %>% 
+  set_engine("glmnet")
+
+bike_workflow_3 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_3) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_3 <- predict(bike_workflow_3, new_data = test)
+
+submission_3 <- penalized_preds_3 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_3, file = "./Penalized3.5.csv", delim = ",")
+
+
+# When v in (0,1) it is elastic net
+# Try 4: penalty = , mixture =
+# Define a Model
+penalized_model_4 <- linear_reg(penalty = 0.001, mixture = 0.1 ) %>% 
+  set_engine("glmnet")
+
+bike_workflow_4 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_4) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_4 <- predict(bike_workflow_4, new_data = test)
+
+submission_4 <- penalized_preds_4 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_4, file = "./Penalized4.7.csv", delim = ",")
+
+# Try 5: penalty = , mixture =
+# Define a Model
+penalized_model_5 <- linear_reg(penalty = 0.0001 , mixture = 0.01) %>% 
+  set_engine("glmnet")
+
+bike_workflow_5 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_5) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_5 <- predict(bike_workflow_5, new_data = test)
+
+submission_5 <- penalized_preds_5 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_5, file = "./Penalized5.6.csv", delim = ",")
+
+# This one was the best with penalty = 0.0001 , mixture = 0.01
+
+
+# Try 6: penalty = , mixture =
+# Define a Model
+penalized_model_5 <- linear_reg(penalty = 0.0001 , mixture = 0.05) %>% 
+  set_engine("glmnet")
+
+bike_workflow_5 <- workflow() %>% 
+  add_recipe(bike_recipe) %>% 
+  add_model(penalized_model_5) %>% 
+  fit(data = new_train)
+
+# Run all the Steps on test data
+penalized_preds_5 <- predict(bike_workflow_5, new_data = test)
+
+submission_5 <- penalized_preds_5 |>
+  bind_cols(test) |> # bind preditions with test data
+  select(datetime, .pred) |> # just keep datetime and prediction value
+  rename(count = .pred) |> #rename pred to count as Kaggle submission wants
+  mutate(count = exp(count)) |> # make count not log_count
+  mutate(count = pmax(0, count)) |> # pointwise max of (0, prediciton) ie if prediction is <0 make 0
+  mutate(datetime = as.character(format(datetime))) # needed fo right format to Kaggle
+
+# Write out the file to submit to Kaggle
+vroom_write(x= submission_5, file = "./Penalized6.5.csv", delim = ",")
 
 
